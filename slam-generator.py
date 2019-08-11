@@ -20,8 +20,7 @@ header_path = str()
 
 parser = argparse.ArgumentParser(description='This script generates a C++ OpenGL function loader library.')
 
-parser.add_argument('number', action = 'store', type = float, 
-                        help = "the OpenGL version, eg. (3.3).")
+parser.add_argument('api', action = 'store', nargs='+', help = "API and version eg. 'gl 4.0'")
 
 parser.add_argument('--source-dir', action = 'store', default = 'slam', type = str,
                         help = "name for the generated source files directory, by default is 'slam'")
@@ -31,7 +30,7 @@ parser.add_argument('--source', action = 'store', default = 'slam', type = str,
 
 parser.add_argument('--profile', action = 'store', choices = ['compat', 'core'], default = 'core',
                         help = "specify the OpenGL profile mode, if core, deprecated features will not to be \
-                                generated.")
+                                generated")
 
 parser.add_argument("--namespace", action = 'store', type = str, default = 'gl',
                         help = 'name of the global C++ namespace, \
@@ -399,13 +398,6 @@ class Function:
         s = 2 * tab + self.name
         s+= ' = (decltype(' + self.name + ')) load(\"' + self.name + '\");\n'
         return s
-        
-
-def has_version(version):
-    for feature in root.findall('feature'):
-        if float(feature.get('number')) == version and feature.get('api') == 'gl':
-            return True
-    return False
 
 
 def write_function_pointers_declarations():
@@ -692,11 +684,11 @@ def load_required_enums_names(feature):
             required.append(enum.get('name'))
     return required
 
-def parse_enums():
+def parse_enums(api, version):
     enums_names_to_load = []
     deprecated = []
     for feature in tree.findall('feature'):
-        if (float(feature.get('number')) > args.number) or feature.get('api') != 'gl':
+        if (float(feature.get('number')) > version) or feature.get('api') != api:
             continue
 
         current_deprecated = load_deprecated_enums_names(feature)
@@ -724,11 +716,11 @@ def parse_enums():
                     e.deprecated = True
                 glenums.append(e)
 
-def parse_functions():
+def parse_functions(api, version):
     functions_names_to_load = []
     deprecated = []
     for feature in tree.findall('feature'):
-        if (float(feature.get('number')) > args.number) or feature.get('api') != 'gl':
+        if (float(feature.get('number')) > version) or feature.get('api') != api:
             continue
 
         current_deprecated = load_deprecated_functions_names(feature)
@@ -758,6 +750,28 @@ def done(code):
     source.close()
     exit(code)
 
+def check_if_API_and_version_exists(root, api, version):
+    for feature in root.findall('feature'):
+        if feature.get('api') == api and float(feature.get('number')) == version:
+            return
+    print("Error: no API '", api, " ", version, "'", sep = '')
+
+
+def check_api_command_argument(root, api_arg):
+    if len(api_arg) != 2:
+        print("Error: wrong api argument ",api_arg,", do '<api> <version>'", sep = '', file=sys.stderr)
+        done(-1)
+
+    try:
+        float(api_arg[1])
+    except ValueError:
+        print("Error: invalid api version: '", api_arg[1], "'", sep ='')
+        done(-1)
+
+    check_if_API_and_version_exists(root, api_arg[0], float(api_arg[1]))
+    return (api_arg[0], float(api_arg[1]))
+
+
 if args.register:
     filename =  args.register
 else:
@@ -779,11 +793,7 @@ if args.profile == 'core' and args.d == True:
 
 root = tree.getroot()
 
-if has_version(args.number) == False:
-    print("Error: gl version", args.number, "not found.", file=sys.stderr)
-    done(-1)
-
-
+api_version = check_api_command_argument(root, args.api)
 
 if not args.source_dir == '':
     if not os.path.exists(args.source_dir):
@@ -794,8 +804,9 @@ if not args.source_dir == '':
 header_path = args.source_dir + args.source + '.h'
 source_path = args.source_dir + args.source + '.cpp'
 
-parse_enums()
-parse_functions()
+parse_enums(api_version[0], api_version[1])
+parse_functions(api_version[0], api_version[1])
+
 write_header_file() 
 write_source_file()
 
